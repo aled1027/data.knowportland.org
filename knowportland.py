@@ -7,8 +7,8 @@ from urllib.parse import urljoin
 
 import click
 import dotenv
+import httpx
 import llm
-import requests
 import sqlite_utils
 import tiktoken
 from bs4 import BeautifulSoup
@@ -17,7 +17,6 @@ from llm_tools_datasette import Datasette
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -34,6 +33,12 @@ class PortlandDBBuilder:
             "q=recContainer:17141116&sortBy=recCreatedOn&pageSize=1000&start=0"
         )
 
+        self.httpx_client = httpx.Client(
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=True,
+        )
+
         self.base_dir = "data"
         self.metadata_filepath = os.path.join(self.base_dir, "metadata.json")
         self.file_dir = os.path.join(self.base_dir, "portland_minutes_pdfs")
@@ -46,13 +51,13 @@ class PortlandDBBuilder:
         os.makedirs(self.chunk_dir, exist_ok=True)
 
     def _fetch_html(self, url: str) -> str:
-        response = requests.get(url)
+        response = self.httpx_client.get(url)
         response.raise_for_status()
         return response.text
 
     def _save_file(self, pdf_url: str, filename: str) -> None:
         """Used for saving a pdf or another file type"""
-        response = requests.get(pdf_url)
+        response = self.httpx_client.get(pdf_url)
         response.raise_for_status()
         with open(filename, "wb") as f:
             f.write(response.content)
@@ -65,7 +70,7 @@ class PortlandDBBuilder:
             return None
 
         iframe_url = urljoin(self.base_url, iframe_link)
-        iframe_response = requests.get(iframe_url)
+        iframe_response = self.httpx_client.get(iframe_url)
         iframe_response.raise_for_status()
 
         iframe_soup = BeautifulSoup(iframe_response.text, "html.parser")
