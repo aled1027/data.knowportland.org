@@ -1,6 +1,16 @@
 # data.knowportland.org
 
-## Set up and Usage
+- Datasette is on fly at: https://data-knowportland.fly.dev/
+
+## Deployment
+
+After building the database, deploy to fly:
+
+```bash
+$ datasette publish fly data/portland.db --app="data-knowportland"
+```
+
+This deploys to the URL: https://data-knowportland.fly.dev/.
 
 ## Usage
 
@@ -21,28 +31,16 @@ uv sync
 Then run it
 
 ```
-python knowportland.py crawl
+python knowportland.py build
 
-# 3. Outputs text files. Puts them into data/portland_minutes_texts
-cd data/portland_minutes_pdfs
-for file in *.pdf; do pdftotext "$file" "${file%.pdf}.txt"; done
-mv *.txt ../portland_minutes_texts
+# After building the db, run these
 
-# 4. Chunk the text files. Puts them into data/portland_minutes_chunks
-python make_chunks.py
-
-# 5. Build sqlite database
-# 5a. Embed the chunks into an llm collection in data/portland.db
 llm embed-multi pdx \
  --model sentence-transformers/all-MiniLM-L6-v2 \
  --store \
  --database data/portland.db \
  --files data/portland_minutes_chunks '*.txt'
-
-# 5b. Import the files table
 sqlite-utils insert data/portland.db files data/portland_minutes_pdfs/metadata.json --pk file_id
-
-# 5c. Add meeting_id to embeddings
 sqlite-utils add-column data/portland.db embeddings file_id text
 sqlite-utils query data/portland.db "update embeddings set file_id = id"
 sqlite-utils convert data/portland.db embeddings file_id 'value.split("_")[0] if "_" in value else value' --import sqlite_utils
@@ -53,12 +51,11 @@ datasette data/portland.db
 
 # 7. query
 # Query with datasette as a tool:
-python query.py \
-  --prompt "Which city councilors spoke in a meeting with id 17141131?"
+python knowportland.py query \
+  --prompt "Which city councilors were in attendence in a meeting with id 17141131? The files table has a meeting_id column."
 
 # Query with RAG (direct to sqlite file, not datasette):
-python query.py \
-  --rag \
+python knowportland.py query --rag \
   --prompt "Which city councilors spoke in an embedding with id 17141131_chunk_006.txt?"
 ```
 

@@ -208,13 +208,15 @@ class DatabaseQuerier:
     def __init__(self):
         llm_model_name = "gpt-4o-mini"
         self.llm_model = llm.get_model(llm_model_name)
+        # self.datasette_url = "http://localhost:8001/portland"
+        self.datasette_url = "https://data-knowportland.fly.dev/portland"
 
     def query_with_llm(self, prompt: str) -> str:
         """Tool mode using Datasette"""
         response = self.llm_model.chain(
             prompt,
             key=OPENAI_API_KEY,
-            tools=[Datasette("http://localhost:8001/portland")],
+            tools=[Datasette(self.datasette_url)],
         )
         return response.text()
 
