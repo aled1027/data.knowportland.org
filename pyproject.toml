@@ -8,6 +8,8 @@ dependencies = [
     "beautifulsoup4>=4.13.4",
     "datasette>=0.65.1",
     "llm>=0.26",
+    "llm-sentence-transformers>=0.3.2",
     "llm-tools-datasette>=0.1",
+    "python-dotenv>=1.1.1",
     "tiktoken>=0.9.0",
 ]
