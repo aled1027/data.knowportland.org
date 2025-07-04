@@ -11,5 +11,9 @@ dependencies = [
     "llm-sentence-transformers>=0.3.2",
     "llm-tools-datasette>=0.1",
     "python-dotenv>=1.1.1",
+    "ruff>=0.12.2",
     "tiktoken>=0.9.0",
 ]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"] # E = pycodestyle, F = pyflakes, I = import sorting

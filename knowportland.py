@@ -1,18 +1,18 @@
-import click
-import sqlite_utils
-import llm
-import dotenv
-import os
-import tiktoken
-from llm_tools_datasette import Datasette
-import os
 import json
-import time
 import logging
-import requests
+import os
 import subprocess
-from bs4 import BeautifulSoup
+import time
 from urllib.parse import urljoin
+
+import click
+import dotenv
+import llm
+import requests
+import sqlite_utils
+import tiktoken
+from bs4 import BeautifulSoup
+from llm_tools_datasette import Datasette
 
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -60,7 +60,7 @@ class PortlandDBBuilder:
         try:
             iframe_link = soup.find_all("iframe")[1]["src"]
         except (IndexError, KeyError):
-            logger.warning(f"No valid iframe found")
+            logger.warning("No valid iframe found")
             return None
 
         iframe_url = urljoin(self.base_url, iframe_link)
@@ -99,7 +99,7 @@ class PortlandDBBuilder:
 
         a_tags = soup.find_all("a", href=True)
         a_tags = [a for a in a_tags if is_good_tag(a)]
-        print(f"Found {len(a_tags)} meeting links.")
+        logger.info(f"Found {len(a_tags)} meeting links.")
 
         data = []
         for i, a_tag in enumerate(a_tags):
@@ -108,7 +108,8 @@ class PortlandDBBuilder:
             logger.info("Processing %s / %s: %s", i, len(a_tags), meeting_page_url)
 
             meeting_soup = BeautifulSoup(
-                self._fetch_html(meeting_page_url), "html.parser"
+                self._fetch_html(meeting_page_url),
+                "html.parser",
             )
             title = meeting_soup.find("h2").get_text(strip=True)
             logger.info("Processing meeting: %s", title)
@@ -182,12 +183,14 @@ class PortlandDBBuilder:
         for filename in os.listdir(self.text_dir):
             if filename.endswith(".txt"):
                 filepath = os.path.join(self.text_dir, filename)
-                with open(filepath, "r", encoding="utf-8") as f:
+                with open(filepath, encoding="utf-8") as f:
                     text = f.read()
 
                 tokens = encoding.encode(text)
                 token_chunks = self.chunk_tokens(
-                    tokens, self.chunk_size, self.chunk_token_overlap
+                    tokens,
+                    self.chunk_size,
+                    self.chunk_token_overlap,
                 )
 
                 base = os.path.splitext(filename)[0]
@@ -197,8 +200,8 @@ class PortlandDBBuilder:
                     with open(out_path, "w", encoding="utf-8") as out_file:
                         out_file.write(chunk_text)
 
-                print(f"Processed {filename}: {len(token_chunks)} chunks")
-        print("✅ All files processed.")
+                logger.info(f"Processed {filename}: {len(token_chunks)} chunks")
+        logger.info("✅ All files processed.")
 
 
 class DatabaseQuerier:
@@ -223,10 +226,8 @@ class DatabaseQuerier:
 
         full_prompt = ""
         for item in similar_resp:
-            full_prompt += "<minutes>{}</minutes>\n".format(item.content)
-        full_prompt += "\n\nUsing the minutes above, answer the following: {}".format(
-            prompt
-        )
+            full_prompt += f"<minutes>{item.content}</minutes>\n"
+        full_prompt += f"\n\nUsing the minutes above, answer the following: {prompt}"
 
         response = self.llm_model.prompt(full_prompt, key=OPENAI_API_KEY)
         return response.text()
@@ -235,14 +236,14 @@ class DatabaseQuerier:
 @click.help_option("-h", "--help")
 @click.group()
 def cli():
-    """Know Portland - A tool for querying Portland city data and processing text chunks."""
+    """Know Portland - A tool for querying Portland city data
+    and processing text chunks."""
     pass
 
 
 @cli.command()
 def build():
     """Build the Portland city meeting minutes database."""
-
     scraper = PortlandDBBuilder()
     scraper.scrape_files()
     scraper.transcribe_pdfs()

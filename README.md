@@ -62,9 +62,12 @@ python query.py \
   --prompt "Which city councilors spoke in an embedding with id 17141131_chunk_006.txt?"
 ```
 
-## UV Tips
+## Development
 
-```bash
-uv add ruff
+```
+# To run checks
 uv run ruff check
+
+# To add a dependency
+uv add ruff
 ```
