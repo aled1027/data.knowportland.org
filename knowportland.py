@@ -10,6 +10,7 @@ import json
 import time
 import logging
 import requests
+import subprocess
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
@@ -129,6 +130,34 @@ class PortlandMinutesScraper:
         # Write data to a file
         with open(os.path.join(self.outdir, "metadata.json"), "w") as f:
             json.dump(data, f, indent=4)
+
+    def transcribe_pdfs(self):
+        """Convert PDFs to text files."""
+        logger.info("Converting PDFs to text files...")
+        pdf_dir = self.outdir
+
+        try:
+            # Convert all PDFs to text
+            for file in os.listdir(pdf_dir):
+                if file.endswith(".pdf"):
+                    pdf_path = os.path.join(pdf_dir, file)
+                    txt_file = f"{file[:-4]}.txt"
+                    txt_path = os.path.join(pdf_dir, txt_file)
+                    subprocess.run(["pdftotext", pdf_path, txt_path], check=True)
+                    logger.info(f"Converted {pdf_path} to {txt_path}")
+
+            # Move all text files to the texts directory
+            texts_dir = os.path.join(os.path.dirname(pdf_dir), "portland_minutes_texts")
+            for file in os.listdir(pdf_dir):
+                if file.endswith(".txt"):
+                    src_path = os.path.join(pdf_dir, file)
+                    dst_path = os.path.join(texts_dir, file)
+                    subprocess.run(["mv", src_path, dst_path], check=True)
+                    logger.info(f"Moved {src_path} to {dst_path}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error during PDF conversion: {e}")
+
+        logger.info("PDF to text conversion completed.")
 
 
 @click.help_option("-h", "--help")
