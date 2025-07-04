@@ -35,6 +35,7 @@ class PortlandDBBuilder:
         )
 
         self.base_dir = "data"
+        self.metadata_filepath = os.path.join(self.base_dir, "metadata.json")
         self.file_dir = os.path.join(self.base_dir, "portland_minutes_pdfs")
         self.text_dir = os.path.join(self.base_dir, "portland_minutes_texts")
         self.chunk_dir = os.path.join(self.base_dir, "portland_minutes_chunks")
@@ -134,7 +135,7 @@ class PortlandDBBuilder:
             time.sleep(1)
 
         # Write data to a file
-        with open(os.path.join(self.base_dir, "metadata.json"), "w") as f:
+        with open(self.metadata_filepath, "w") as f:
             json.dump(data, f, indent=4)
 
     def transcribe_pdfs(self):
@@ -203,13 +204,55 @@ class PortlandDBBuilder:
                 logger.info(f"Processed {filename}: {len(token_chunks)} chunks")
         logger.info("✅ All files processed.")
 
+    def actually_build_db(self):
+        """Actually build the database."""
+        logger.info("Starting database post-processing...")
+
+        # Initialize database
+        db = sqlite_utils.Database("data/portland.db")
+
+        # Create embeddings using llm embed-multi
+        subprocess.run(
+            [
+                "llm",
+                "embed-multi",
+                "pdx",
+                "--model",
+                "sentence-transformers/all-MiniLM-L6-v2",
+                "--store",
+                "--database",
+                "data/portland.db",
+                "--files",
+                "data/portland_minutes_chunks",
+                "*.txt",
+            ],
+            check=True,
+        )
+
+        # Create the files table based on the metadata file
+        with open(self.metadata_filepath, "r") as f:
+            files_data = json.load(f)
+
+        files_table = db["files"]
+        files_table.insert_all(files_data, pk="file_id", replace=True)
+
+        def extract_base_filename(value):
+            # Helper function for extracting the base filename from the file_id
+            # in the embeddings table
+            return value.split("_")[0] if "_" in value else value
+
+        db["embeddings"].add_column("file_id", str)
+        db.execute("UPDATE embeddings SET file_id = id")
+        db["embeddings"].convert("file_id", extract_base_filename)
+        db["embeddings"].add_foreign_key("file_id", "files", "file_id")
+
 
 class DatabaseQuerier:
     def __init__(self):
         llm_model_name = "gpt-4o-mini"
         self.llm_model = llm.get_model(llm_model_name)
-        # self.datasette_url = "http://localhost:8001/portland"
-        self.datasette_url = "https://data-knowportland.fly.dev/portland"
+        self.datasette_url = "http://localhost:8001/portland"
+        # self.datasette_url = "https://data-knowportland.fly.dev/portland"
 
     def query_with_llm(self, prompt: str) -> str:
         """Tool mode using Datasette"""
@@ -250,6 +293,7 @@ def build():
     scraper.scrape_files()
     scraper.transcribe_pdfs()
     scraper.process_chunks()
+    scraper.actually_build_db()
 
 
 @cli.command()
