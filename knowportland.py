@@ -21,26 +21,28 @@ OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Chunking configuration
-CHUNK_SIZE = 5000
-OVERLAP = 250
-MODEL = "gpt-3.5-turbo"
-INPUT_DIR = "data/portland_minutes_texts"
-OUTPUT_DIR = "data/portland_minutes_chunks"
 
-
-class PortlandMinutesScraper:
-    def __init__(self, outdir: str):
+class PortlandDBBuilder:
+    def __init__(self):
         self.base_url = "https://efiles.portlandoregon.gov"
-
+        self.chunk_size = 5000
+        self.chunk_token_overlap = 250
+        self.chunk_model = "gpt-3.5-turbo"
         # We have ?pageSize and ?start for pagination
-        self.start_url = (
+        self.scrape_start_url = (
             "https://efiles.portlandoregon.gov/record?"
             "q=recContainer:17141116&sortBy=recCreatedOn&pageSize=1000&start=0"
         )
 
-        self.outdir = outdir
-        os.makedirs(self.outdir, exist_ok=True)
+        self.base_dir = "data"
+        self.file_dir = os.path.join(self.base_dir, "portland_minutes_pdfs")
+        self.text_dir = os.path.join(self.base_dir, "portland_minutes_texts")
+        self.chunk_dir = os.path.join(self.base_dir, "portland_minutes_chunks")
+
+        os.makedirs(self.base_dir, exist_ok=True)
+        os.makedirs(self.file_dir, exist_ok=True)
+        os.makedirs(self.text_dir, exist_ok=True)
+        os.makedirs(self.chunk_dir, exist_ok=True)
 
     def _fetch_html(self, url: str) -> str:
         response = requests.get(url)
@@ -78,10 +80,13 @@ class PortlandMinutesScraper:
 
         return urljoin(self.base_url, pdf_links[0]["href"])
 
-    def scrape_all(self):
-        # The start url is basically the list of meetings (paginated)
-        # Pagination isn't handled yet
-        html = self._fetch_html(self.start_url)
+    def scrape_files(self):
+        """Scrape the files from the start url.
+
+        The start url is basically the list of meetings (paginated)
+        Pagination isn't handled yet
+        """
+        html = self._fetch_html(self.scrape_start_url)
         soup = BeautifulSoup(html, "html.parser")
 
         def is_good_tag(tag):
@@ -113,7 +118,7 @@ class PortlandMinutesScraper:
                 continue
 
             file_id = pdf_url.rstrip("/").split("/")[-3]
-            filename = os.path.join(self.outdir, f"{file_id}.pdf")
+            filename = os.path.join(self.file_dir, f"{file_id}.pdf")
             self._save_file(pdf_url, filename)
 
             metadata = {
@@ -128,13 +133,13 @@ class PortlandMinutesScraper:
             time.sleep(1)
 
         # Write data to a file
-        with open(os.path.join(self.outdir, "metadata.json"), "w") as f:
+        with open(os.path.join(self.base_dir, "metadata.json"), "w") as f:
             json.dump(data, f, indent=4)
 
     def transcribe_pdfs(self):
         """Convert PDFs to text files."""
         logger.info("Converting PDFs to text files...")
-        pdf_dir = self.outdir
+        pdf_dir = self.file_dir
 
         try:
             # Convert all PDFs to text
@@ -159,6 +164,73 @@ class PortlandMinutesScraper:
 
         logger.info("PDF to text conversion completed.")
 
+    def chunk_tokens(self, tokens, size, overlap):
+        """Split tokens into chunks with overlap."""
+        chunks = []
+        start = 0
+        while start < len(tokens):
+            end = start + size
+            chunks.append(tokens[start:end])
+            start += size - overlap
+        return chunks
+
+    def process_chunks(self):
+        """Process text files into chunks."""
+        encoding = tiktoken.encoding_for_model(self.chunk_model)
+        os.makedirs(self.chunk_dir, exist_ok=True)
+
+        for filename in os.listdir(self.text_dir):
+            if filename.endswith(".txt"):
+                filepath = os.path.join(self.text_dir, filename)
+                with open(filepath, "r", encoding="utf-8") as f:
+                    text = f.read()
+
+                tokens = encoding.encode(text)
+                token_chunks = self.chunk_tokens(
+                    tokens, self.chunk_size, self.chunk_token_overlap
+                )
+
+                base = os.path.splitext(filename)[0]
+                for i, chunk in enumerate(token_chunks):
+                    chunk_text = encoding.decode(chunk)
+                    out_path = os.path.join(self.chunk_dir, f"{base}_chunk_{i:03}.txt")
+                    with open(out_path, "w", encoding="utf-8") as out_file:
+                        out_file.write(chunk_text)
+
+                print(f"Processed {filename}: {len(token_chunks)} chunks")
+        print("✅ All files processed.")
+
+
+class DatabaseQuerier:
+    def __init__(self):
+        llm_model_name = "gpt-4o-mini"
+        self.llm_model = llm.get_model(llm_model_name)
+
+    def query_with_llm(self, prompt: str) -> str:
+        """Tool mode using Datasette"""
+        response = self.llm_model.chain(
+            prompt,
+            key=OPENAI_API_KEY,
+            tools=[Datasette("http://localhost:8001/portland")],
+        )
+        return response.text()
+
+    def query_with_rag(self, prompt: str) -> str:
+        """RAG version"""
+        db = sqlite_utils.Database("data/portland.db")
+        collection = llm.Collection("pdx", db=db)
+        similar_resp = collection.similar(prompt, number=5)
+
+        full_prompt = ""
+        for item in similar_resp:
+            full_prompt += "<minutes>{}</minutes>\n".format(item.content)
+        full_prompt += "\n\nUsing the minutes above, answer the following: {}".format(
+            prompt
+        )
+
+        response = self.llm_model.prompt(full_prompt, key=OPENAI_API_KEY)
+        return response.text()
+
 
 @click.help_option("-h", "--help")
 @click.group()
@@ -168,108 +240,26 @@ def cli():
 
 
 @cli.command()
+def build():
+    """Build the Portland city meeting minutes database."""
+
+    scraper = PortlandDBBuilder()
+    scraper.scrape_files()
+    scraper.transcribe_pdfs()
+    scraper.process_chunks()
+
+
+@cli.command()
 @click.option("-p", "--prompt", required=True, help="Prompt to ask the model")
 @click.option("--rag", is_flag=True, help="Use RAG mode")
 def query(prompt: str, rag: bool):
     """Query the Portland data using either RAG or tool mode."""
+    querier = DatabaseQuerier()
     if rag:
-        rag_mode(prompt)
+        response = querier.query_with_rag(prompt)
     else:
-        tool_mode(prompt)
-
-
-@cli.command()
-@click.option("--chunk-size", default=CHUNK_SIZE, help="Size of each chunk in tokens")
-@click.option("--overlap", default=OVERLAP, help="Overlap between chunks in tokens")
-@click.option("--model", default=MODEL, help="Model to use for tokenization")
-@click.option(
-    "--input-dir", default=INPUT_DIR, help="Input directory containing text files"
-)
-@click.option("--output-dir", default=OUTPUT_DIR, help="Output directory for chunks")
-def chunk(chunk_size: int, overlap: int, model: str, input_dir: str, output_dir: str):
-    """Process text files into chunks for RAG processing."""
-    process_chunks(chunk_size, overlap, model, input_dir, output_dir)
-
-
-@cli.command()
-def crawl():
-    """Crawl Portland city meeting minutes and download PDFs."""
-    # TODO: abstract out the directory names or basename
-
-    os.makedirs("data/", exist_ok=True)
-    os.makedirs("data/portland_minutes_pdfs", exist_ok=True)
-    os.makedirs("data/portland_minutes_texts", exist_ok=True)
-    os.makedirs("data/portland_minutes_chunks", exist_ok=True)
-    output_dir = "data/portland_minutes_pdfs"
-    scraper = PortlandMinutesScraper(output_dir)
-    scraper.scrape_all()
-
-
-def rag_mode(prompt: str):
-    """RAG version"""
-    db = sqlite_utils.Database("data/portland.db")
-    collection = llm.Collection("pdx", db=db)
-
-    similar_resp = collection.similar(prompt, number=5)
-
-    full_prompt = ""
-    for item in similar_resp:
-        full_prompt += "<minutes>{}</minutes>\n".format(item.content)
-    full_prompt += "\n\nUsing the minutes above, answer the following: {}".format(
-        prompt
-    )
-
-    model = llm.get_model("gpt-4o-mini")
-    response = model.prompt(full_prompt, key=OPENAI_API_KEY)
-    print(response.text())
-
-
-def tool_mode(prompt: str):
-    """Tool mode using Datasette"""
-    model = llm.get_model("gpt-4o-mini")
-    response = model.chain(
-        prompt, key=OPENAI_API_KEY, tools=[Datasette("http://localhost:8001/portland")]
-    )
-    print(response.text())
-
-
-def chunk_tokens(tokens, size, overlap):
-    """Split tokens into chunks with overlap."""
-    chunks = []
-    start = 0
-    while start < len(tokens):
-        end = start + size
-        chunks.append(tokens[start:end])
-        start += size - overlap
-    return chunks
-
-
-def process_chunks(
-    chunk_size: int, overlap: int, model: str, input_dir: str, output_dir: str
-):
-    """Process text files into chunks."""
-    # Setup tokenizer
-    encoding = tiktoken.encoding_for_model(model)
-    os.makedirs(output_dir, exist_ok=True)
-
-    for filename in os.listdir(input_dir):
-        if filename.endswith(".txt"):
-            filepath = os.path.join(input_dir, filename)
-            with open(filepath, "r", encoding="utf-8") as f:
-                text = f.read()
-
-            tokens = encoding.encode(text)
-            token_chunks = chunk_tokens(tokens, chunk_size, overlap)
-
-            base = os.path.splitext(filename)[0]
-            for i, chunk in enumerate(token_chunks):
-                chunk_text = encoding.decode(chunk)
-                out_path = os.path.join(output_dir, f"{base}_chunk_{i:03}.txt")
-                with open(out_path, "w", encoding="utf-8") as out_file:
-                    out_file.write(chunk_text)
-
-            print(f"Processed {filename}: {len(token_chunks)} chunks")
-    print("✅ All files processed.")
+        response = querier.query_with_llm(prompt)
+    print(response)
 
 
 if __name__ == "__main__":
