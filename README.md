@@ -8,7 +8,6 @@ mkdir -p data/
 mkdir -p data/portland_minutes_pdfs
 mkdir -p data/portland_minutes_texts
 mkdir -p data/portland_minutes_chunks
-llm install llm-tools-datasette
 
 # 1. Crawl to download pdfs. Puts them into data/portland_minutes_pdfs
 python crawl.py
@@ -50,4 +49,11 @@ python alex_api/knowportland/utils/query.py \
 python alex_api/knowportland/utils/query.py \
   --rag \
   --prompt "Which city councilors spoke in an embedding with id 17141131_chunk_006.txt?"
+```
+
+## UV Tips
+
+```bash
+uv add ruff
+uv run ruff check
 ```

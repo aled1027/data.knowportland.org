@@ -1,6 +1,5 @@
 import os
 import tiktoken
-import json
 
 # Configuration
 CHUNK_SIZE = 5000
@@ -43,6 +42,7 @@ def go():
 
             print(f"Processed {filename}: {len(token_chunks)} chunks")
     print("✅ All files processed.")
+
 
 if __name__ == "__main__":
     go()
