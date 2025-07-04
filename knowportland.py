@@ -163,13 +163,15 @@ def chunk(chunk_size: int, overlap: int, model: str, input_dir: str, output_dir:
 
 
 @cli.command()
-@click.option(
-    "--output-dir",
-    default="data/portland_minutes_pdfs",
-    help="Output directory for PDF files",
-)
-def crawl(output_dir: str):
+def crawl():
     """Crawl Portland city meeting minutes and download PDFs."""
+    # TODO: abstract out the directory names or basename
+
+    os.makedirs("data/", exist_ok=True)
+    os.makedirs("data/portland_minutes_pdfs", exist_ok=True)
+    os.makedirs("data/portland_minutes_texts", exist_ok=True)
+    os.makedirs("data/portland_minutes_chunks", exist_ok=True)
+    output_dir = "data/portland_minutes_pdfs"
     scraper = PortlandMinutesScraper(output_dir)
     scraper.scrape_all()
 

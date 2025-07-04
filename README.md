@@ -16,16 +16,12 @@ brew install poppler
 # Install astral and install python dependencies
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
+```
 
+Then run it
 
-# 1. setup
-mkdir -p data/
-mkdir -p data/portland_minutes_pdfs
-mkdir -p data/portland_minutes_texts
-mkdir -p data/portland_minutes_chunks
-
-# 2. Crawl to download pdfs. Puts them into data/portland_minutes_pdfs
-python crawl.py
+```
+python knowportland.py crawl
 
 # 3. Outputs text files. Puts them into data/portland_minutes_texts
 cd data/portland_minutes_pdfs
