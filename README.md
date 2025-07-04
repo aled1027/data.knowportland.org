@@ -33,24 +33,16 @@ Then run it
 ```
 python knowportland.py build
 
-# After building the db, run these
-
-llm embed-multi pdx \
- --model sentence-transformers/all-MiniLM-L6-v2 \
- --store \
- --database data/portland.db \
- --files data/portland_minutes_chunks '*.txt'
-sqlite-utils insert data/portland.db files data/portland_minutes_pdfs/metadata.json --pk file_id
-sqlite-utils add-column data/portland.db embeddings file_id text
-sqlite-utils query data/portland.db "update embeddings set file_id = id"
-sqlite-utils convert data/portland.db embeddings file_id 'value.split("_")[0] if "_" in value else value' --import sqlite_utils
-sqlite-utils add-foreign-key data/portland.db embeddings file_id files file_id
-
-# 6. Start datasette
+# If running with --local, then start datasette
 datasette data/portland.db
 
-# 7. query
 # Query with datasette as a tool:
+
+# Quick good tests for whether the tools is working:
+python knowportland.py query --prompt "What is the pk of the embedding table?" --local
+python knowportland.py query --prompt "What is the pk of the embedding table?"
+
+
 python knowportland.py query \
   --prompt "Which city councilors were in attendence in a meeting with id 17141131? The files table has a meeting_id column."
 

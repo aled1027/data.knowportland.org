@@ -248,11 +248,15 @@ class PortlandDBBuilder:
 
 
 class DatabaseQuerier:
-    def __init__(self):
+    def __init__(self, local: bool):
         llm_model_name = "gpt-4o-mini"
         self.llm_model = llm.get_model(llm_model_name)
-        self.datasette_url = "http://localhost:8001/portland"
-        # self.datasette_url = "https://data-knowportland.fly.dev/portland"
+        self.use_local = local
+
+        if self.use_local:
+            self.datasette_url = "http://localhost:8001/portland"
+        else:
+            self.datasette_url = "https://data.knowportland.org/portland"
 
     def query_with_llm(self, prompt: str) -> str:
         """Tool mode using Datasette"""
@@ -299,9 +303,10 @@ def build():
 @cli.command()
 @click.option("-p", "--prompt", required=True, help="Prompt to ask the model")
 @click.option("--rag", is_flag=True, help="Use RAG mode")
-def query(prompt: str, rag: bool):
+@click.option("--local", is_flag=True, help="Use local datasette")
+def query(prompt: str, rag: bool, local: bool):
     """Query the Portland data using either RAG or tool mode."""
-    querier = DatabaseQuerier()
+    querier = DatabaseQuerier(local)
     if rag:
         response = querier.query_with_rag(prompt)
     else:
