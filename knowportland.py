@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import time
+from pathlib import Path
 from urllib.parse import urljoin
 
 import click
@@ -146,27 +147,34 @@ class PortlandDBBuilder:
     def transcribe_pdfs(self):
         """Convert PDFs to text files."""
         logger.info("Converting PDFs to text files...")
-        pdf_dir = self.file_dir
+        pdf_dir = Path(self.file_dir)
+        text_dir = Path(self.text_dir)
 
         try:
             # Convert all PDFs to text
-            for file in os.listdir(pdf_dir):
-                if file.endswith(".pdf"):
-                    pdf_path = os.path.join(pdf_dir, file)
-                    txt_file = f"{file[:-4]}.txt"
-                    txt_path = os.path.join(pdf_dir, txt_file)
-                    subprocess.run(["pdftotext", pdf_path, txt_path], check=True)
-                    logger.info(f"Converted {pdf_path} to {txt_path}")
+            for pdf_file in pdf_dir.glob("*.pdf"):
+                txt_file = text_dir / f"{pdf_file.stem}.txt"
 
-            # Move all text files to the texts directory
-            texts_dir = os.path.join(os.path.dirname(pdf_dir), "portland_minutes_texts")
-            for file in os.listdir(pdf_dir):
-                if file.endswith(".txt"):
-                    src_path = os.path.join(pdf_dir, file)
-                    dst_path = os.path.join(texts_dir, file)
-                    subprocess.run(["mv", src_path, dst_path], check=True)
-                    logger.info(f"Moved {src_path} to {dst_path}")
-        except subprocess.CalledProcessError as e:
+                # Skip if text file already exists
+                if txt_file.exists():
+                    logger.info(f"Skipping already converted: {pdf_file.name}")
+                    continue
+
+                try:
+                    subprocess.run(
+                        ["pdftotext", str(pdf_file), str(txt_file)],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    logger.info(f"Converted {pdf_file.name} to {txt_file.name}")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to convert {pdf_file.name}: {e.stderr}")
+                    # Remove partial file if it exists
+                    if txt_file.exists():
+                        txt_file.unlink()
+
+        except Exception as e:
             logger.error(f"Error during PDF conversion: {e}")
 
         logger.info("PDF to text conversion completed.")
@@ -299,9 +307,9 @@ def cli():
 def build():
     """Build the Portland city meeting minutes database."""
     scraper = PortlandDBBuilder()
-    scraper.scrape_files()
-    scraper.transcribe_pdfs()
-    scraper.process_chunks()
+    # scraper.scrape_files()
+    # scraper.transcribe_pdfs()
+    # scraper.process_chunks()
     scraper.actually_build_db()
 
 
